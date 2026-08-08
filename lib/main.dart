@@ -22,13 +22,16 @@ class _MyAppState extends State<MyApp> {
 
   void toggleTheme() {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _themeMode =
+          _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     });
   }
 
   void toggleLanguage() {
     setState(() {
-      _locale = _locale.languageCode == 'fa' ? const Locale('en') : const Locale('fa');
+      _locale = _locale.languageCode == 'fa'
+          ? const Locale('en')
+          : const Locale('fa');
     });
   }
 
@@ -115,7 +118,13 @@ class _HomePageState extends State<HomePage> {
 
         if (status.state == 'ERROR') {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('خطا: ${status.message ?? "اتصال ناموفق"}')),
+            SnackBar(
+              content: Text(
+                widget.isFa
+                    ? 'خطا در اتصال: ${status.message ?? "نامشخص"}'
+                    : 'Connection error: ${status.message ?? "Unknown"}',
+              ),
+            ),
           );
         }
       },
@@ -179,7 +188,7 @@ class _HomePageState extends State<HomePage> {
         }
 
         List<ConfigModel> parsedConfigs = [];
-        for (int i = 2; i < lines.length; i++) {  // معمولاً خط اول و دوم هدر هست
+        for (int i = 2; i < lines.length; i++) {
           final raw = lines[i];
           final fullName = decodeRemark(raw);
           final emoji = extractEmoji(fullName);
@@ -199,15 +208,21 @@ class _HomePageState extends State<HomePage> {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.isFa ? 'خطا در دریافت لیست' : 'Error fetching list')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.isFa ? 'خطا در دریافت لیست سرورها' : 'Error fetching servers',
+            ),
+          ),
+        );
+      }
     } finally {
       setState(() => isLoading = false);
     }
   }
 
-  // پینگ واقعی
+  // پینگ واقعی (مثل v2rayNG)
   Future<void> testPingAndSort() async {
     if (configList.isEmpty || isPinging) return;
 
@@ -230,18 +245,20 @@ class _HomePageState extends State<HomePage> {
 
     setState(() => isPinging = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          widget.isFa
-              ? 'تست پینگ انجام شد و لیست مرتب گردید'
-              : 'Ping test completed & list sorted',
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.isFa
+                ? 'تست پینگ انجام شد و لیست مرتب گردید'
+                : 'Ping test completed & list sorted',
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
-  // دکمه اتصال بهبود یافته
+  // دکمه اتصال با مدیریت خطا
   void toggleConnect() async {
     if (selectedConfigRaw == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -264,9 +281,15 @@ class _HomePageState extends State<HomePage> {
     try {
       final permission = await v2ray.requestPermission();
       if (!permission) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('دسترسی VPN رد شد')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                widget.isFa ? 'دسترسی VPN رد شد' : 'VPN permission denied',
+              ),
+            ),
+          );
+        }
         return;
       }
 
@@ -282,12 +305,18 @@ class _HomePageState extends State<HomePage> {
       await v2ray.startV2Ray(
         remark: current.name,
         config: selectedConfigRaw!,
-        proxyOnly: false, // VPN Mode
+        proxyOnly: false,
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطا در شروع اتصال: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.isFa ? 'خطا در شروع اتصال: $e' : 'Start error: $e',
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -307,14 +336,19 @@ class _HomePageState extends State<HomePage> {
           title: const Text('v2source'),
           actions: [
             IconButton(
-              icon: Icon(widget.isDark ? Icons.wb_sunny : Icons.nightlight_round),
+              icon: Icon(
+                widget.isDark ? Icons.wb_sunny : Icons.nightlight_round,
+              ),
               onPressed: widget.onToggleTheme,
             ),
             TextButton(
               onPressed: widget.onToggleLanguage,
               child: Text(
                 isFa ? 'EN' : 'FA',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             IconButton(
@@ -328,7 +362,6 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             children: [
               if (isLoading || isPinging) const LinearProgressIndicator(),
-              // ... (بقیه کد UI بدون تغییر زیاد - همان کد قبلی شما)
 
               Card(
                 elevation: 2,
@@ -341,7 +374,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Text(
                           lastUpdateText.isEmpty
-                              ? (isFa ? 'در حال دریافت اطلاعات...' : 'Fetching info...')
+                              ? (isFa
+                                  ? 'در حال دریافت اطلاعات...'
+                                  : 'Fetching info...')
                               : lastUpdateText,
                           style: const TextStyle(fontSize: 12),
                         ),
@@ -350,15 +385,19 @@ class _HomePageState extends State<HomePage> {
                         onPressed: _openTelegram,
                         icon: const Icon(Icons.send, size: 14),
                         label: Text(isFa ? 'تلگرام' : 'Telegram'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                        ),
                       )
                     ],
                   ),
                 ),
               ),
-
               const SizedBox(height: 15),
 
-              // دکمه بزرگ Start/Stop
               ElevatedButton(
                 onPressed: toggleConnect,
                 style: ElevatedButton.styleFrom(
@@ -377,7 +416,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 15),
 
               Row(
@@ -385,7 +423,10 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   Text(
                     isFa ? 'لیست سرورها:' : 'Server List:',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   OutlinedButton.icon(
                     onPressed: testPingAndSort,
@@ -397,7 +438,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 8),
 
               Expanded(
@@ -407,25 +447,40 @@ class _HomePageState extends State<HomePage> {
                     final item = configList[index];
                     final isSelected = item.rawConfig == selectedConfigRaw;
                     return Card(
-                      color: isSelected ? Colors.blue.withOpacity(0.25) : null,
+                      color: isSelected
+                          ? Colors.blue.withOpacity(0.25)
+                          : null,
                       child: ListTile(
-                        leading: Text(item.emoji, style: const TextStyle(fontSize: 24)),
+                        leading: Text(
+                          item.emoji,
+                          style: const TextStyle(fontSize: 24),
+                        ),
                         title: Text(
                           item.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
                         subtitle: item.delay > 0
                             ? Text(
                                 'Ping: ${item.delay} ms',
                                 style: TextStyle(
-                                  color: item.delay < 250 ? Colors.green : Colors.orange,
+                                  color: item.delay < 250
+                                      ? Colors.green
+                                      : Colors.orange,
                                   fontSize: 12,
                                 ),
                               )
                             : null,
-                        trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.blue) : null,
+                        trailing: isSelected
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.blue,
+                              )
+                            : null,
                         onTap: () {
                           setState(() {
                             selectedConfigRaw = item.rawConfig;
