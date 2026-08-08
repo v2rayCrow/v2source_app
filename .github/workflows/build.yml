@@ -28,7 +28,8 @@ jobs:
           channel: 'stable'
 
       - name: Create Android Platform Files
-        run: flutter create . --platforms=android
+        run: |
+          flutter create . --platforms=android --org com.v2source.app
 
       - name: Install dependencies
         run: flutter pub get
