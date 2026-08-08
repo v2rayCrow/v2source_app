@@ -116,16 +116,18 @@ class _HomePageState extends State<HomePage> {
           isConnected = status.state == 'CONNECTED';
         });
 
-        if (status.state == 'ERROR') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.isFa
-                    ? 'خطا در اتصال: ${status.message ?? "نامشخص"}'
-                    : 'Connection error: ${status.message ?? "Unknown"}',
+        // ✅ کد درست
+          if (status.state == 'ERROR') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  widget.isFa
+                      ? 'خطا در اتصال'
+                      : 'Connection error',
+                ),
               ),
-            ),
-          );
+            );
+          }
         }
       },
     );
