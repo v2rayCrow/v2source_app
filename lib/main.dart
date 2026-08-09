@@ -186,6 +186,9 @@ class ConfigModel {
   final String displayName;
   final String flag;
 
+  /// شماره سرور در بین کشور خودش (مثلا فنلاند ۱ تا ۱۰) تا با هم قاطی نشن
+  int countryIndex;
+
   /// -1 = تست نشده، 0 = بدون پاسخ، >0 = میلی‌ثانیه
   int delay;
 
@@ -197,6 +200,7 @@ class ConfigModel {
     required this.name,
     required this.displayName,
     required this.flag,
+    this.countryIndex = 0,
     this.delay = -1,
     this.fullConfig,
   });
@@ -251,8 +255,13 @@ class _HomePageState extends State<HomePage> {
   /// null = همه
   String? _selectedCountry;
 
-  /// concurrency پایین برای جلوگیری از کرش هسته native
-  static const int _pingConcurrency = 3;
+  /// تست‌ها یکی‌یکی (سریال) انجام می‌شن، نه همزمان.
+  /// هسته V2Ray فقط یک تست delay رو در آن واحد به‌درستی مدیریت می‌کنه؛
+  /// وقتی چند تست هم‌زمان اجرا بشه (concurrency > 1) پورت‌ها/سوکت‌های
+  /// موقتی که هسته برای تست باز می‌کنه با هم تداخل پیدا می‌کنن و همین
+  /// باعث می‌شد کانفیگ‌های کاملا سالم هم به اشتباه «بدون پاسخ» نشون داده
+  /// بشن، و گاهی هم کل اپ کرش می‌کرد. برای پایداری کامل روی ۱ ثابت بمونه.
+  static const int _pingConcurrency = 1;
 
   @override
   void initState() {
@@ -352,6 +361,15 @@ class _HomePageState extends State<HomePage> {
         final order = counts.keys.toList()
           ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
 
+        // شماره‌گذاری هر سرور در بین سرورهای هم‌کشور خودش (۱، ۲، ۳...)
+        // تا وقتی مثلا ۱۰ تا سرور فنلاند هست، بشه راحت از هم تشخیصشون داد
+        final seenPerCountry = <String, int>{};
+        for (final c in parsedConfigs) {
+          final n = (seenPerCountry[c.flag] ?? 0) + 1;
+          seenPerCountry[c.flag] = n;
+          c.countryIndex = n;
+        }
+
         if (!mounted) return;
         setState(() {
           configList = parsedConfigs;
@@ -436,6 +454,29 @@ class _HomePageState extends State<HomePage> {
       setState(() => configList.sort(_compareByDelay));
     });
 
+    /// یک بار تست delay واقعی برای یک کانفیگ. خروجی >0 یعنی موفق،
+    /// و هر مقدار <=0 (خطا یا تایم‌اوت) یعنی ناموفق.
+    Future<int> testOnce(ConfigModel item) async {
+      try {
+        final fullConfig = getFullConfig(item);
+        if (fullConfig == null || fullConfig.isEmpty) return 0;
+        // URL جایگزین که معمولاً در شبکه‌های محدود بهتر کار می‌کند
+        final delay = await v2ray
+            .getServerDelay(
+              config: fullConfig,
+              url: 'http://www.gstatic.com/generate_204',
+            )
+            .timeout(
+              const Duration(seconds: 8),
+              onTimeout: () => -1,
+            );
+        return delay;
+      } catch (e) {
+        debugPrint('ping error: $e');
+        return -1;
+      }
+    }
+
     int nextIndex = 0;
 
     Future<void> worker() async {
@@ -448,35 +489,26 @@ class _HomePageState extends State<HomePage> {
           setState(() => _testingNow.add(item.rawConfig));
         }
 
-        try {
-          final fullConfig = getFullConfig(item);
-          if (fullConfig == null || fullConfig.isEmpty) {
-            item.delay = 0;
-          } else {
-            // URL جایگزین که معمولاً در شبکه‌های محدود بهتر کار می‌کند
-            final delay = await v2ray
-                .getServerDelay(
-                  config: fullConfig,
-                  url: 'http://www.gstatic.com/generate_204',
-                )
-                .timeout(
-                  const Duration(seconds: 8),
-                  onTimeout: () => -1,
-                );
-            item.delay = delay > 0 ? delay : 0;
-          }
-        } catch (e) {
-          debugPrint('ping error: $e');
-          item.delay = 0;
+        int delay = await testOnce(item);
+
+        // یک بار retry قبل از اینکه قطعی «بدون پاسخ» اعلام بشه؛
+        // خیلی از موارد «بدون پاسخ» در واقع یک شکست موقتی/گذرا بودن
+        // نه اینکه کانفیگ واقعا خراب باشه.
+        if (delay <= 0 && !_cancelPing) {
+          await Future.delayed(const Duration(milliseconds: 300));
+          delay = await testOnce(item);
         }
+
+        item.delay = delay > 0 ? delay : 0;
 
         _pingDone++;
         if (mounted) {
           setState(() => _testingNow.remove(item.rawConfig));
         }
 
-        // فاصله کوچک بین تست‌ها برای جلوگیری از فشار روی هسته
-        await Future.delayed(const Duration(milliseconds: 90));
+        // فاصله بین تست‌ها تا هسته V2Ray فرصت آزادسازی منابع تست قبلی
+        // رو داشته باشه (این وقفه یکی از دلایل اصلی نتایج غلط بود)
+        await Future.delayed(const Duration(milliseconds: 200));
       }
     }
 
@@ -523,6 +555,45 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _showSnack(String fa, String en) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(widget.isFa ? fa : en)),
+    );
+  }
+
+  /// شروع اتصال روی یک کانفیگ مشخص (فرض بر اینه که از قبل چیزی وصل نیست)
+  Future<bool> _startConnection(ConfigModel item) async {
+    try {
+      final permission = await v2ray.requestPermission();
+      if (!permission) {
+        _showSnack('دسترسی VPN رد شد', 'VPN permission denied');
+        return false;
+      }
+
+      final fullConfig = getFullConfig(item);
+      if (fullConfig == null || fullConfig.isEmpty) {
+        _showSnack('کانفیگ نامعتبر است', 'Invalid config');
+        return false;
+      }
+
+      await v2ray.startV2Ray(
+        remark: item.name,
+        config: fullConfig,
+        proxyOnly: false,
+      );
+      return true;
+    } catch (e) {
+      debugPrint('start error: $e');
+      try {
+        await v2ray.stopV2Ray();
+      } catch (_) {}
+      if (mounted) setState(() => isConnected = false);
+      _showSnack('خطا در شروع اتصال: $e', 'Connect error: $e');
+      return false;
+    }
+  }
+
   Future<void> toggleConnect() async {
     // جلوگیری از کلیک‌های پشت‌سرهم
     final now = DateTime.now();
@@ -534,16 +605,7 @@ class _HomePageState extends State<HomePage> {
 
     if (_connecting) return;
     if (selectedConfigRaw == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.isFa
-                ? 'لطفا ابتدا یک کانفیگ انتخاب کنید'
-                : 'Please select a config first',
-          ),
-        ),
-      );
+      _showSnack('لطفا ابتدا یک کانفیگ انتخاب کنید', 'Please select a config first');
       return;
     }
 
@@ -562,20 +624,6 @@ class _HomePageState extends State<HomePage> {
 
     _connecting = true;
     try {
-      final permission = await v2ray.requestPermission();
-      if (!permission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.isFa ? 'دسترسی VPN رد شد' : 'VPN permission denied',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-
       final current = configList.firstWhere(
         (e) => e.rawConfig == selectedConfigRaw,
         orElse: () => ConfigModel(
@@ -585,45 +633,42 @@ class _HomePageState extends State<HomePage> {
           flag: '🌐',
         ),
       );
+      await _startConnection(current);
+    } finally {
+      _connecting = false;
+    }
+  }
 
-      final fullConfig = getFullConfig(current);
-      if (fullConfig == null || fullConfig.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.isFa
-                    ? 'کانفیگ نامعتبر است'
-                    : 'Invalid config',
-              ),
-            ),
-          );
-        }
-        return;
-      }
+  /// وقتی روی یک کانفیگ در لیست کلیک می‌شه:
+  /// - اگه چیزی وصل نیست: فقط انتخابش کن.
+  /// - اگه از قبل وصل به همین کانفیگه: کاری نکن.
+  /// - اگه به یه کانفیگ دیگه وصله: خودکار قطعش کن و به این یکی وصل شو.
+  Future<void> onConfigTap(ConfigModel item) async {
+    if (item.rawConfig == selectedConfigRaw && !isConnected) return;
+    if (item.rawConfig == selectedConfigRaw && isConnected) return;
 
-      await v2ray.startV2Ray(
-        remark: current.name,
-        config: fullConfig,
-        proxyOnly: false,
-      );
-    } catch (e) {
-      debugPrint('start error: $e');
+    if (!isConnected) {
+      setState(() => selectedConfigRaw = item.rawConfig);
+      return;
+    }
+
+    // در حال جابجایی بین دو کانفیگ
+    if (_connecting) return;
+    _connecting = true;
+    setState(() {
+      selectedConfigRaw = item.rawConfig;
+      isConnected = false;
+    });
+    try {
       try {
         await v2ray.stopV2Ray();
-      } catch (_) {}
-      if (mounted) {
-        setState(() => isConnected = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.isFa
-                  ? 'خطا در شروع اتصال: $e'
-                  : 'Connect error: $e',
-            ),
-          ),
-        );
+      } catch (e) {
+        debugPrint('stop-before-switch error: $e');
       }
+      // یک مکث کوتاه تا سرویس VPN قبلی کاملا آزاد بشه قبل از اتصال جدید
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted || selectedConfigRaw != item.rawConfig) return;
+      await _startConnection(item);
     } finally {
       _connecting = false;
     }
@@ -854,9 +899,26 @@ class _HomePageState extends State<HomePage> {
                                 ? Colors.blue.withOpacity(0.25)
                                 : null,
                             child: ListTile(
-                              leading: Text(
-                                item.flag,
-                                style: const TextStyle(fontSize: 28),
+                              leading: SizedBox(
+                                width: 40,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      item.flag,
+                                      style: const TextStyle(fontSize: 24),
+                                    ),
+                                    if (item.countryIndex > 0)
+                                      Text(
+                                        '#${item.countryIndex}',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey[500],
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
                               title: Text(
                                 item.displayName,
@@ -869,16 +931,14 @@ class _HomePageState extends State<HomePage> {
                               ),
                               subtitle: _buildSubtitle(item, isFa),
                               trailing: isSelected
-                                  ? const Icon(
+                                  ? Icon(
                                       Icons.check_circle,
-                                      color: Colors.blue,
+                                      color: isConnected
+                                          ? Colors.green
+                                          : Colors.blue,
                                     )
                                   : null,
-                              onTap: () {
-                                setState(() {
-                                  selectedConfigRaw = item.rawConfig;
-                                });
-                              },
+                              onTap: () => onConfigTap(item),
                             ),
                           );
                         },
