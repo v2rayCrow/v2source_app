@@ -104,6 +104,19 @@ class _HomePageState extends State<HomePage> {
   final String telegramUrl = 'https://t.me/V2Source';
   Timer? _timer;
 
+  // Ping test progress + live-sort state
+  int _pingDone = 0;
+  int _pingTotal = 0;
+  Timer? _sortTimer;
+
+  // Keep this LOW. The underlying v2ray/xray core is not designed for
+  // hammering many delay-tests back to back — pushing concurrency too
+  // high (or looping through hundreds sequentially with no pause) is
+  // what causes the native core to crash and the app process to get
+  // flagged "bad" by Android, which then blocks the VPN service from
+  // starting until the flag clears.
+  static const int _pingConcurrency = 3;
+
   @override
   void initState() {
     super.initState();
@@ -122,6 +135,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _sortTimer?.cancel();
     super.dispose();
   }
 
@@ -206,39 +220,77 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  int _compareByDelay(ConfigModel a, ConfigModel b) {
+    if (a.delay <= 0 && b.delay <= 0) return 0;
+    if (a.delay <= 0) return 1;
+    if (b.delay <= 0) return -1;
+    return a.delay.compareTo(b.delay);
+  }
+
   Future<void> testPingAndSort() async {
     if (configList.isEmpty || isPinging) return;
-    setState(() => isPinging = true);
 
-    for (final item in configList) {
-      try {
-        final fullConfig = getFullConfig(item.rawConfig);
-        if (fullConfig == null) {
+    setState(() {
+      isPinging = true;
+      _pingDone = 0;
+      _pingTotal = configList.length;
+    });
+
+    // Re-sort + rebuild on a timer instead of after every single result.
+    // With ~400 items, sorting/rebuilding on every completion would be
+    // both slow and would spam the native side; every 400ms is frequent
+    // enough to feel "live" without hammering anything.
+    _sortTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+      if (!mounted) return;
+      setState(() => configList.sort(_compareByDelay));
+    });
+
+    final queue = List<ConfigModel>.from(configList);
+    int nextIndex = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        if (nextIndex >= queue.length) return;
+        final item = queue[nextIndex++];
+        try {
+          final fullConfig = getFullConfig(item.rawConfig);
+          if (fullConfig == null) {
+            item.delay = -1;
+          } else {
+            final delay = await v2ray
+                .getServerDelay(config: fullConfig)
+                .timeout(const Duration(seconds: 8), onTimeout: () => -1);
+            item.delay = delay > 0 ? delay : -1;
+          }
+        } catch (_) {
           item.delay = -1;
-          continue;
         }
-        final delay = await v2ray.getServerDelay(config: fullConfig);
-        item.delay = delay > 0 ? delay : -1;
-      } catch (_) {
-        item.delay = -1;
+        _pingDone++;
+        if (mounted) setState(() {});
+        // Small breathing room between tests on this worker so we don't
+        // fire requests at the native core back-to-back.
+        await Future.delayed(const Duration(milliseconds: 120));
       }
     }
 
-    configList.sort((a, b) {
-      if (a.delay <= 0) return 1;
-      if (b.delay <= 0) return -1;
-      return a.delay.compareTo(b.delay);
-    });
-
-    setState(() => isPinging = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(widget.isFa
-              ? 'تست پینگ انجام شد و لیست مرتب گردید'
-              : 'Ping test completed & list sorted'),
-        ),
-      );
+    try {
+      await Future.wait(List.generate(_pingConcurrency, (_) => worker()));
+    } finally {
+      _sortTimer?.cancel();
+      _sortTimer = null;
+      if (mounted) {
+        setState(() {
+          configList.sort(_compareByDelay);
+          isPinging = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.isFa
+                ? 'تست پینگ انجام شد و لیست مرتب گردید'
+                : 'Ping test completed & list sorted'),
+          ),
+        );
+      }
     }
   }
 
@@ -255,7 +307,15 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (isConnected) {
-      await v2ray.stopV2Ray();
+      try {
+        await v2ray.stopV2Ray();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(widget.isFa ? 'خطا در قطع اتصال: $e' : 'Stop error: $e')),
+          );
+        }
+      }
       return;
     }
 
@@ -382,10 +442,12 @@ class _HomePageState extends State<HomePage> {
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   OutlinedButton.icon(
-                    onPressed: testPingAndSort,
+                    onPressed: isPinging ? null : testPingAndSort,
                     icon: const Icon(Icons.speed, size: 16),
                     label: Text(
-                      isFa ? 'تست پینگ واقعی' : 'Real Delay / Sort',
+                      isPinging
+                          ? '$_pingDone/$_pingTotal'
+                          : (isFa ? 'تست پینگ واقعی' : 'Real Delay / Sort'),
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
