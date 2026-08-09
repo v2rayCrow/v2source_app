@@ -1,23 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
-  // جلوگیری از کرش کل اپ در صورت خطای async یا framework
-  runZonedGuarded(() {
-    WidgetsFlutterBinding.ensureInitialized();
-    FlutterError.onError = (FlutterErrorDetails details) {
-      FlutterError.presentError(details);
-      debugPrint('FlutterError: ${details.exceptionAsString()}');
-    };
-    runApp(const MyApp());
-  }, (error, stack) {
-    debugPrint('Uncaught zone error: $error\n$stack');
-  });
+  runApp(const MyApp());
 }
 
 class MyApp extends StatefulWidget {
@@ -33,15 +22,13 @@ class _MyAppState extends State<MyApp> {
 
   void toggleTheme() {
     setState(() {
-      _themeMode =
-          _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     });
   }
 
   void toggleLanguage() {
     setState(() {
-      _locale =
-          _locale.languageCode == 'fa' ? const Locale('en') : const Locale('fa');
+      _locale = _locale.languageCode == 'fa' ? const Locale('en') : const Locale('fa');
     });
   }
 
@@ -70,135 +57,17 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-/// نام کشورها بر اساس پرچم
-const Map<String, List<String>> _flagCountryNames = {
-  '🇺🇸': ['آمریکا', 'USA'],
-  '🇬🇧': ['انگلیس', 'UK'],
-  '🇩🇪': ['آلمان', 'Germany'],
-  '🇫🇷': ['فرانسه', 'France'],
-  '🇳🇱': ['هلند', 'Netherlands'],
-  '🇸🇬': ['سنگاپور', 'Singapore'],
-  '🇯🇵': ['ژاپن', 'Japan'],
-  '🇰🇷': ['کره جنوبی', 'South Korea'],
-  '🇭🇰': ['هنگ کنگ', 'Hong Kong'],
-  '🇹🇼': ['تایوان', 'Taiwan'],
-  '🇨🇳': ['چین', 'China'],
-  '🇷🇺': ['روسیه', 'Russia'],
-  '🇹🇷': ['ترکیه', 'Turkey'],
-  '🇮🇷': ['ایران', 'Iran'],
-  '🇮🇳': ['هند', 'India'],
-  '🇨🇦': ['کانادا', 'Canada'],
-  '🇦🇺': ['استرالیا', 'Australia'],
-  '🇧🇷': ['برزیل', 'Brazil'],
-  '🇮🇹': ['ایتالیا', 'Italy'],
-  '🇪🇸': ['اسپانیا', 'Spain'],
-  '🇵🇹': ['پرتغال', 'Portugal'],
-  '🇨🇭': ['سوئیس', 'Switzerland'],
-  '🇦🇹': ['اتریش', 'Austria'],
-  '🇧🇪': ['بلژیک', 'Belgium'],
-  '🇸🇪': ['سوئد', 'Sweden'],
-  '🇳🇴': ['نروژ', 'Norway'],
-  '🇫🇮': ['فنلاند', 'Finland'],
-  '🇩🇰': ['دانمارک', 'Denmark'],
-  '🇵🇱': ['لهستان', 'Poland'],
-  '🇨🇿': ['چک', 'Czechia'],
-  '🇭🇺': ['مجارستان', 'Hungary'],
-  '🇬🇷': ['یونان', 'Greece'],
-  '🇮🇪': ['ایرلند', 'Ireland'],
-  '🇺🇦': ['اوکراین', 'Ukraine'],
-  '🇮🇱': ['اسرائیل', 'Israel'],
-  '🇦🇪': ['امارات', 'UAE'],
-  '🇸🇦': ['عربستان', 'Saudi Arabia'],
-  '🇿🇦': ['آفریقای جنوبی', 'South Africa'],
-  '🇲🇽': ['مکزیک', 'Mexico'],
-  '🇦🇷': ['آرژانتین', 'Argentina'],
-  '🇨🇱': ['شیلی', 'Chile'],
-  '🇮🇩': ['اندونزی', 'Indonesia'],
-  '🇲🇾': ['مالزی', 'Malaysia'],
-  '🇹🇭': ['تایلند', 'Thailand'],
-  '🇻🇳': ['ویتنام', 'Vietnam'],
-  '🇵🇭': ['فیلیپین', 'Philippines'],
-  '🇷🇴': ['رومانی', 'Romania'],
-  '🇧🇬': ['بلغارستان', 'Bulgaria'],
-  '🇭🇷': ['کرواسی', 'Croatia'],
-  '🇷🇸': ['صربستان', 'Serbia'],
-  '🇸🇮': ['اسلوونی', 'Slovenia'],
-  '🇸🇰': ['اسلواکی', 'Slovakia'],
-  '🇱🇹': ['لیتوانی', 'Lithuania'],
-  '🇱🇻': ['لتونی', 'Latvia'],
-  '🇪🇪': ['استونی', 'Estonia'],
-  '🇮🇸': ['ایسلند', 'Iceland'],
-  '🇱🇺': ['لوکزامبورگ', 'Luxembourg'],
-  '🇲🇹': ['مالت', 'Malta'],
-  '🇨🇾': ['قبرس', 'Cyprus'],
-  '🇪🇬': ['مصر', 'Egypt'],
-  '🇳🇬': ['نیجریه', 'Nigeria'],
-  '🇰🇪': ['کنیا', 'Kenya'],
-  '🇵🇰': ['پاکستان', 'Pakistan'],
-  '🇧🇩': ['بنگلادش', 'Bangladesh'],
-  '🇳🇿': ['نیوزیلند', 'New Zealand'],
-  '🇰🇿': ['قزاقستان', 'Kazakhstan'],
-  '🇬🇪': ['گرجستان', 'Georgia'],
-  '🇦🇲': ['ارمنستان', 'Armenia'],
-  '🇦🇿': ['آذربایجان', 'Azerbaijan'],
-  '🇲🇩': ['مولداوی', 'Moldova'],
-  '🇧🇾': ['بلاروس', 'Belarus'],
-  '🇮🇶': ['عراق', 'Iraq'],
-  '🇶🇦': ['قطر', 'Qatar'],
-  '🇰🇼': ['کویت', 'Kuwait'],
-  '🇧🇭': ['بحرین', 'Bahrain'],
-  '🇴🇲': ['عمان', 'Oman'],
-  '🇯🇴': ['اردن', 'Jordan'],
-  '🇱🇧': ['لبنان', 'Lebanon'],
-};
-
-final RegExp _flagRegex = RegExp(r'[\u{1F1E6}-\u{1F1FF}]{2}', unicode: true);
-
-final RegExp _emojiCleanupRegex = RegExp(
-  r'[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}\u{200D}]',
-  unicode: true,
-);
-
-String extractFlag(String text) {
-  final match = _flagRegex.firstMatch(text);
-  if (match != null) return match.group(0)!;
-  return '🌐';
-}
-
-String stripEmojisForDisplay(String text, bool isFa) {
-  var cleaned = text.replaceAll(_emojiCleanupRegex, '');
-  cleaned = cleaned.replaceAll(RegExp(r'^[\s\-–—|]+'), '');
-  cleaned = cleaned.replaceAll(RegExp(r'[\s\-–—|]+$'), '');
-  cleaned = cleaned.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
-  if (cleaned.isEmpty) return isFa ? 'سرور' : 'Server';
-  return cleaned;
-}
-
-String countryLabel(String flag, bool isFa) {
-  final entry = _flagCountryNames[flag];
-  if (entry == null) return '';
-  return isFa ? entry[0] : entry[1];
-}
-
 class ConfigModel {
   final String rawConfig;
   final String name;
-  final String displayName;
-  final String flag;
-
-  /// -1 = تست نشده، 0 = بدون پاسخ، >0 = میلی‌ثانیه
+  final String emoji;
   int delay;
-
-  /// کش JSON کامل برای سرعت و جلوگیری از parse مکرر
-  String? fullConfig;
 
   ConfigModel({
     required this.rawConfig,
     required this.name,
-    required this.displayName,
-    required this.flag,
+    required this.emoji,
     this.delay = -1,
-    this.fullConfig,
   });
 }
 
@@ -228,57 +97,46 @@ class _HomePageState extends State<HomePage> {
   bool isConnected = false;
   bool isLoading = false;
   bool isPinging = false;
-
-  bool _connecting = false;
-  DateTime? _lastToggleTime;
+  int pingProgress = 0;
+  int pingTotal = 0;
 
   List<ConfigModel> configList = [];
   String? selectedConfigRaw;
   String lastUpdateText = '';
-  final String telegramUrl = 'https://t.me/V2Source';
+  String telegramUrl = 'https://t.me/V2Source';
   Timer? _timer;
-
-  // وضعیت پینگ
-  int _pingDone = 0;
-  int _pingTotal = 0;
-  Timer? _sortTimer;
-  final Set<String> _testingNow = {};
-  bool _cancelPing = false;
-
-  // گروه‌بندی کشور
-  List<String> _countryOrder = [];
-  Map<String, int> _countryCounts = {};
-  /// null = همه
-  String? _selectedCountry;
-
-  /// concurrency پایین برای جلوگیری از کرش هسته native
-  static const int _pingConcurrency = 3;
 
   @override
   void initState() {
     super.initState();
-    try {
-      v2ray = FlutterV2ray(
-        onStatusChanged: (status) {
-          if (!mounted) return;
-          setState(() {
-            isConnected = status.state == 'CONNECTED';
-          });
-        },
-      );
-      v2ray.initializeV2Ray();
-    } catch (e) {
-      debugPrint('v2ray init error: $e');
-    }
+    v2ray = FlutterV2ray(
+      onStatusChanged: (status) {
+        if (!mounted) return;
+        setState(() {
+          isConnected = status.state == 'CONNECTED';
+        });
+
+        if (status.state == 'ERROR' && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(widget.isFa
+                ? 'خطا: ${status.message ?? "اتصال ناموفق"}'
+                : 'Error: ${status.message ?? "Connection failed"}')),
+          );
+        }
+      },
+    );
+
+    v2ray.initializeV2Ray();
     fetchSubscription();
-    _timer = Timer.periodic(const Duration(hours: 6), (_) => fetchSubscription());
+
+    _timer = Timer.periodic(const Duration(hours: 6), (timer) {
+      if (mounted) fetchSubscription();
+    });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _sortTimer?.cancel();
-    _cancelPing = true;
     super.dispose();
   }
 
@@ -292,35 +150,31 @@ class _HomePageState extends State<HomePage> {
     return widget.isFa ? 'سرور بدون نام' : 'Unnamed Server';
   }
 
-  /// تبدیل لینک share به JSON کامل + کش
-  String? getFullConfig(ConfigModel item) {
-    if (item.fullConfig != null && item.fullConfig!.isNotEmpty) {
-      return item.fullConfig;
+  String extractEmoji(String text) {
+    final RegExp emojiRegex = RegExp(
+      r'[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]',
+      unicode: true,
+    );
+    final matches = emojiRegex.allMatches(text);
+    if (matches.isNotEmpty) {
+      return matches.map((m) => m.group(0)).join();
     }
-    try {
-      final parser = FlutterV2ray.parseFromURL(item.rawConfig);
-      final json = parser.getFullConfiguration();
-      item.fullConfig = json;
-      return json;
-    } catch (e) {
-      debugPrint('parse error: $e');
-      return null;
-    }
+    return '🌐';
   }
 
   Future<void> fetchSubscription() async {
-    if (mounted) setState(() => isLoading = true);
+    if (!mounted) return;
+    setState(() => isLoading = true);
     try {
-      final response = await http
-          .get(Uri.parse(subUrl))
-          .timeout(const Duration(seconds: 20));
+      final response = await http.get(Uri.parse(subUrl));
       if (response.statusCode == 200) {
         String content = response.body.trim();
+
         try {
           content = utf8.decode(base64.decode(content));
         } catch (_) {}
 
-        final lines = content
+        List<String> lines = content
             .split('\n')
             .map((e) => e.trim())
             .where((e) => e.isNotEmpty)
@@ -330,49 +184,35 @@ class _HomePageState extends State<HomePage> {
           lastUpdateText = decodeRemark(lines[0]);
         }
 
-        final parsedConfigs = <ConfigModel>[];
-        // معمولاً خط اول و دوم هدر هستند
+        List<ConfigModel> parsedConfigs = [];
+        // معمولاً خط اول و دوم هدر هستن
         for (int i = 2; i < lines.length; i++) {
           final raw = lines[i];
           if (!raw.contains('://')) continue;
+
           final fullName = decodeRemark(raw);
-          final flag = extractFlag(fullName);
+          final emoji = extractEmoji(fullName);
+
           parsedConfigs.add(ConfigModel(
             rawConfig: raw,
             name: fullName,
-            displayName: stripEmojisForDisplay(fullName, widget.isFa),
-            flag: flag,
+            emoji: emoji,
           ));
         }
 
-        final counts = <String, int>{};
-        for (final c in parsedConfigs) {
-          counts[c.flag] = (counts[c.flag] ?? 0) + 1;
+        if (mounted) {
+          setState(() {
+            configList = parsedConfigs;
+            if (configList.isNotEmpty && selectedConfigRaw == null) {
+              selectedConfigRaw = configList.first.rawConfig;
+            }
+          });
         }
-        final order = counts.keys.toList()
-          ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
-
-        if (!mounted) return;
-        setState(() {
-          configList = parsedConfigs;
-          _countryCounts = counts;
-          _countryOrder = order;
-          // همیشه با «همه» شروع کن
-          _selectedCountry = null;
-          if (configList.isNotEmpty && selectedConfigRaw == null) {
-            selectedConfigRaw = configList.first.rawConfig;
-          }
-        });
       }
     } catch (e) {
-      debugPrint('fetch error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.isFa ? 'خطا در دریافت لیست' : 'Error fetching list',
-            ),
-          ),
+          SnackBar(content: Text(widget.isFa ? 'خطا در دریافت لیست' : 'Error fetching list')),
         );
       }
     } finally {
@@ -380,227 +220,138 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  int _compareByDelay(ConfigModel a, ConfigModel b) {
-    // تست‌نشده (-1) پایین‌تر، بدون پاسخ (0) وسط، موفق‌ها بالا و بر اساس ms
-    int rank(ConfigModel c) {
-      if (c.delay < 0) return 2;
-      if (c.delay == 0) return 1;
-      return 0;
-    }
-
-    final ra = rank(a);
-    final rb = rank(b);
-    if (ra != rb) return ra.compareTo(rb);
-    if (ra == 0) return a.delay.compareTo(b.delay);
-    return 0;
-  }
-
-  /// لیست قابل مشاهده بر اساس فیلتر کشور
-  List<ConfigModel> get _visibleConfigs {
-    if (_selectedCountry == null) return List<ConfigModel>.from(configList);
-    return configList.where((c) => c.flag == _selectedCountry).toList();
-  }
-
+  /// پینگ واقعی با پارس صحیح و موازی‌سازی محدود
   Future<void> testPingAndSort() async {
-    if (isPinging) return;
-    if (isConnected) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.isFa
-                ? 'برای تست پینگ، ابتدا اتصال را قطع کنید'
-                : 'Disconnect before running a ping test',
-          ),
-        ),
-      );
-      return;
-    }
-
-    // فقط کانفیگ‌های لیست فعلی (همه یا یک کشور)
-    final toTest = List<ConfigModel>.from(_visibleConfigs);
-    if (toTest.isEmpty) return;
+    if (configList.isEmpty || isPinging || !mounted) return;
 
     setState(() {
       isPinging = true;
-      _cancelPing = false;
-      _pingDone = 0;
-      _pingTotal = toTest.length;
-      _testingNow.clear();
+      pingProgress = 0;
+      pingTotal = configList.length;
     });
 
-    // مرتب‌سازی زنده هر ۴۰۰ میلی‌ثانیه
-    _sortTimer?.cancel();
-    _sortTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
-      if (!mounted || _cancelPing) return;
-      setState(() => configList.sort(_compareByDelay));
-    });
-
-    int nextIndex = 0;
-
-    Future<void> worker() async {
-      while (!_cancelPing) {
-        final i = nextIndex++;
-        if (i >= toTest.length) return;
-
-        final item = toTest[i];
-        if (mounted) {
-          setState(() => _testingNow.add(item.rawConfig));
-        }
-
-        try {
-          final fullConfig = getFullConfig(item);
-          if (fullConfig == null || fullConfig.isEmpty) {
-            item.delay = 0;
-          } else {
-            // URL جایگزین که معمولاً در شبکه‌های محدود بهتر کار می‌کند
-            final delay = await v2ray
-                .getServerDelay(
-                  config: fullConfig,
-                  url: 'http://www.gstatic.com/generate_204',
-                )
-                .timeout(
-                  const Duration(seconds: 8),
-                  onTimeout: () => -1,
-                );
-            item.delay = delay > 0 ? delay : 0;
-          }
-        } catch (e) {
-          debugPrint('ping error: $e');
-          item.delay = 0;
-        }
-
-        _pingDone++;
-        if (mounted) {
-          setState(() => _testingNow.remove(item.rawConfig));
-        }
-
-        // فاصله کوچک بین تست‌ها برای جلوگیری از فشار روی هسته
-        await Future.delayed(const Duration(milliseconds: 90));
-      }
+    // اگر وصل بود، اول قطع کن تا پینگ دقیق‌تر باشه
+    bool wasConnected = isConnected;
+    String? previousConfig = selectedConfigRaw;
+    if (isConnected) {
+      try {
+        await v2ray.stopV2Ray();
+        await Future.delayed(const Duration(milliseconds: 600));
+      } catch (_) {}
     }
 
-    try {
-      await Future.wait(
-        List.generate(_pingConcurrency, (_) => worker()),
-      );
-    } catch (e) {
-      debugPrint('ping workers error: $e');
-    } finally {
-      _sortTimer?.cancel();
-      _sortTimer = null;
+    const int concurrency = 5;
+    int successCount = 0;
+
+    for (int i = 0; i < configList.length; i += concurrency) {
+      if (!mounted) break;
+
+      final batch = configList.skip(i).take(concurrency).toList();
+
+      await Future.wait(batch.map((item) async {
+        try {
+          final parser = FlutterV2ray.parseFromURL(item.rawConfig);
+          final fullConfig = parser.getFullConfiguration();
+
+          final delay = await v2ray.getServerDelay(config: fullConfig)
+              .timeout(const Duration(seconds: 8), onTimeout: () => -1);
+
+          item.delay = delay > 0 ? delay : -1;
+          if (item.delay > 0) successCount++;
+        } catch (_) {
+          item.delay = -1;
+        }
+      }));
+
       if (mounted) {
         setState(() {
-          configList.sort(_compareByDelay);
-          isPinging = false;
-          _testingNow.clear();
+          pingProgress = (i + batch.length).clamp(0, configList.length);
         });
-        if (!_cancelPing) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.isFa
-                    ? 'تست پینگ انجام شد ($_pingDone/$_pingTotal)'
-                    : 'Ping test done ($_pingDone/$_pingTotal)',
-              ),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
       }
     }
-  }
 
-  void stopPing() {
-    _cancelPing = true;
-    _sortTimer?.cancel();
+    // مرتب‌سازی: پینگ کمتر بالاتر
+    configList.sort((a, b) {
+      if (a.delay <= 0 && b.delay <= 0) return 0;
+      if (a.delay <= 0) return 1;
+      if (b.delay <= 0) return -1;
+      return a.delay.compareTo(b.delay);
+    });
+
     if (mounted) {
       setState(() {
         isPinging = false;
-        _testingNow.clear();
-        configList.sort(_compareByDelay);
+        pingProgress = 0;
       });
-    }
-  }
 
-  Future<void> toggleConnect() async {
-    // جلوگیری از کلیک‌های پشت‌سرهم
-    final now = DateTime.now();
-    if (_lastToggleTime != null &&
-        now.difference(_lastToggleTime!).inMilliseconds < 800) {
-      return;
-    }
-    _lastToggleTime = now;
-
-    if (_connecting) return;
-    if (selectedConfigRaw == null) {
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             widget.isFa
-                ? 'لطفا ابتدا یک کانفیگ انتخاب کنید'
-                : 'Please select a config first',
+                ? 'تست پینگ انجام شد ($successCount از ${configList.length} موفق)'
+                : 'Ping completed ($successCount of ${configList.length} success)',
           ),
+          duration: const Duration(seconds: 3),
         ),
       );
-      return;
     }
 
-    if (isConnected) {
-      _connecting = true;
-      try {
-        await v2ray.stopV2Ray();
-      } catch (e) {
-        debugPrint('stop error: $e');
-      } finally {
-        _connecting = false;
-        if (mounted) setState(() => isConnected = false);
+    // اگه قبلاً وصل بود، دوباره وصل نکن (کاربر خودش تصمیم بگیره)
+    // اگر خواستی خودکار وصل بشه، می‌تونی اینجا previousConfig رو دوباره start کنی
+  }
+
+  void toggleConnect() async {
+    if (selectedConfigRaw == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.isFa
+                  ? 'لطفا ابتدا یک کانفیگ انتخاب کنید'
+                  : 'Please select a config first',
+            ),
+          ),
+        );
       }
       return;
     }
 
-    _connecting = true;
+    if (isConnected) {
+      try {
+        await v2ray.stopV2Ray();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(widget.isFa ? 'خطا در قطع اتصال' : 'Error disconnecting')),
+          );
+        }
+      }
+      return;
+    }
+
     try {
       final permission = await v2ray.requestPermission();
       if (!permission) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.isFa ? 'دسترسی VPN رد شد' : 'VPN permission denied',
-              ),
-            ),
+            SnackBar(content: Text(widget.isFa ? 'دسترسی VPN رد شد' : 'VPN permission denied')),
           );
         }
         return;
       }
 
       final current = configList.firstWhere(
-        (e) => e.rawConfig == selectedConfigRaw,
+        (element) => element.rawConfig == selectedConfigRaw,
         orElse: () => ConfigModel(
           rawConfig: selectedConfigRaw!,
           name: 'v2source',
-          displayName: 'v2source',
-          flag: '🌐',
+          emoji: '🌐',
         ),
       );
 
-      final fullConfig = getFullConfig(current);
-      if (fullConfig == null || fullConfig.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.isFa
-                    ? 'کانفیگ نامعتبر است'
-                    : 'Invalid config',
-              ),
-            ),
-          );
-        }
-        return;
-      }
+      // پارس صحیح برای اتصال پایدارتر
+      final parser = FlutterV2ray.parseFromURL(selectedConfigRaw!);
+      final fullConfig = parser.getFullConfiguration();
 
       await v2ray.startV2Ray(
         remark: current.name,
@@ -608,24 +359,13 @@ class _HomePageState extends State<HomePage> {
         proxyOnly: false,
       );
     } catch (e) {
-      debugPrint('start error: $e');
-      try {
-        await v2ray.stopV2Ray();
-      } catch (_) {}
       if (mounted) {
-        setState(() => isConnected = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.isFa
-                  ? 'خطا در شروع اتصال: $e'
-                  : 'Connect error: $e',
-            ),
-          ),
+          SnackBar(content: Text(widget.isFa
+              ? 'خطا در شروع اتصال: $e'
+              : 'Error starting connection: $e')),
         );
       }
-    } finally {
-      _connecting = false;
     }
   }
 
@@ -634,90 +374,9 @@ class _HomePageState extends State<HomePage> {
     await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
-  Widget? _buildSubtitle(ConfigModel item, bool isFa) {
-    if (_testingNow.contains(item.rawConfig)) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(strokeWidth: 1.5),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            isFa ? 'در حال تست...' : 'Testing...',
-            style: const TextStyle(fontSize: 12, color: Colors.blueAccent),
-          ),
-        ],
-      );
-    }
-    if (item.delay > 0) {
-      return Text(
-        'Ping: ${item.delay} ms',
-        style: TextStyle(
-          color: item.delay < 250 ? Colors.green : Colors.orange,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      );
-    }
-    if (item.delay == 0) {
-      return Text(
-        isFa ? 'بدون پاسخ (-1)' : 'No response (-1)',
-        style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-      );
-    }
-    return null; // هنوز تست نشده
-  }
-
-  Widget _buildCountryStrip(bool isFa) {
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          // چیپ «همه» اول
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: ChoiceChip(
-              label: Text(
-                isFa
-                    ? 'همه (${configList.length})'
-                    : 'All (${configList.length})',
-              ),
-              selected: _selectedCountry == null,
-              onSelected: (_) {
-                setState(() => _selectedCountry = null);
-              },
-            ),
-          ),
-          ..._countryOrder.map((flag) {
-            final count = _countryCounts[flag] ?? 0;
-            final label = countryLabel(flag, isFa);
-            final text = label.isEmpty
-                ? '$flag ($count)'
-                : '$flag $label ($count)';
-            return Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(text, style: const TextStyle(fontSize: 13)),
-                selected: _selectedCountry == flag,
-                onSelected: (_) {
-                  setState(() => _selectedCountry = flag);
-                },
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isFa = widget.isFa;
-    final visibleConfigs = _visibleConfigs;
 
     return Directionality(
       textDirection: isFa ? TextDirection.rtl : TextDirection.ltr,
@@ -726,24 +385,19 @@ class _HomePageState extends State<HomePage> {
           title: const Text('v2source'),
           actions: [
             IconButton(
-              icon: Icon(
-                widget.isDark ? Icons.wb_sunny : Icons.nightlight_round,
-              ),
+              icon: Icon(widget.isDark ? Icons.wb_sunny : Icons.nightlight_round),
               onPressed: widget.onToggleTheme,
             ),
             TextButton(
               onPressed: widget.onToggleLanguage,
               child: Text(
                 isFa ? 'EN' : 'FA',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               ),
             ),
             IconButton(
               icon: const Icon(Icons.refresh),
-              onPressed: (isLoading || isPinging) ? null : fetchSubscription,
+              onPressed: isLoading || isPinging ? null : fetchSubscription,
             ),
           ],
         ),
@@ -751,7 +405,23 @@ class _HomePageState extends State<HomePage> {
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              if (isLoading || isPinging) const LinearProgressIndicator(),
+              if (isLoading || isPinging) ...[
+                LinearProgressIndicator(
+                  value: isPinging && pingTotal > 0 ? pingProgress / pingTotal : null,
+                ),
+                if (isPinging)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      isFa
+                          ? 'در حال تست پینگ... $pingProgress / $pingTotal'
+                          : 'Pinging... $pingProgress / $pingTotal',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
+
+              const SizedBox(height: 8),
 
               Card(
                 elevation: 2,
@@ -764,9 +434,7 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Text(
                           lastUpdateText.isEmpty
-                              ? (isFa
-                                  ? 'در حال دریافت اطلاعات...'
-                                  : 'Fetching info...')
+                              ? (isFa ? 'در حال دریافت اطلاعات...' : 'Fetching info...')
                               : lastUpdateText,
                           style: const TextStyle(fontSize: 12),
                         ),
@@ -775,7 +443,7 @@ class _HomePageState extends State<HomePage> {
                         onPressed: _openTelegram,
                         icon: const Icon(Icons.send, size: 14),
                         label: Text(isFa ? 'تلگرام' : 'Telegram'),
-                      ),
+                      )
                     ],
                   ),
                 ),
@@ -783,9 +451,9 @@ class _HomePageState extends State<HomePage> {
 
               const SizedBox(height: 15),
 
-              // دکمه بزرگ Start / Stop
+              // دکمه بزرگ Start/Stop
               ElevatedButton(
-                onPressed: toggleConnect,
+                onPressed: isPinging ? null : toggleConnect,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isConnected ? Colors.red : Colors.green,
                   minimumSize: const Size(125, 125),
@@ -810,21 +478,13 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   Text(
                     isFa ? 'لیست سرورها:' : 'Server List:',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   OutlinedButton.icon(
-                    onPressed: isPinging ? stopPing : testPingAndSort,
-                    icon: Icon(
-                      isPinging ? Icons.stop : Icons.speed,
-                      size: 16,
-                    ),
+                    onPressed: isPinging || isLoading ? null : testPingAndSort,
+                    icon: const Icon(Icons.speed, size: 16),
                     label: Text(
-                      isPinging
-                          ? '$_pingDone/$_pingTotal  ${isFa ? "توقف" : "Stop"}'
-                          : (isFa ? 'تست پینگ واقعی' : 'Real Delay / Sort'),
+                      isFa ? 'تست پینگ واقعی' : 'Real Delay / Sort',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
@@ -832,57 +492,55 @@ class _HomePageState extends State<HomePage> {
               ),
 
               const SizedBox(height: 8),
-              _buildCountryStrip(isFa),
-              const SizedBox(height: 8),
 
               Expanded(
-                child: visibleConfigs.isEmpty
-                    ? Center(
-                        child: Text(
-                          isFa ? 'کانفیگی یافت نشد' : 'No configs found',
-                          style: const TextStyle(color: Colors.grey),
+                child: ListView.builder(
+                  itemCount: configList.length,
+                  itemBuilder: (context, index) {
+                    final item = configList[index];
+                    final isSelected = item.rawConfig == selectedConfigRaw;
+                    return Card(
+                      color: isSelected ? Colors.blue.withOpacity(0.25) : null,
+                      child: ListTile(
+                        leading: Text(item.emoji, style: const TextStyle(fontSize: 24)),
+                        title: Text(
+                          item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                         ),
-                      )
-                    : ListView.builder(
-                        itemCount: visibleConfigs.length,
-                        itemBuilder: (context, index) {
-                          final item = visibleConfigs[index];
-                          final isSelected =
-                              item.rawConfig == selectedConfigRaw;
-                          return Card(
-                            color: isSelected
-                                ? Colors.blue.withOpacity(0.25)
-                                : null,
-                            child: ListTile(
-                              leading: Text(
-                                item.flag,
-                                style: const TextStyle(fontSize: 28),
-                              ),
-                              title: Text(
-                                item.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                        subtitle: item.delay > 0
+                            ? Text(
+                                'Ping: ${item.delay} ms',
+                                style: TextStyle(
+                                  color: item.delay < 250
+                                      ? Colors.green
+                                      : item.delay < 500
+                                          ? Colors.orange
+                                          : Colors.red,
+                                  fontSize: 12,
                                 ),
-                              ),
-                              subtitle: _buildSubtitle(item, isFa),
-                              trailing: isSelected
-                                  ? const Icon(
-                                      Icons.check_circle,
-                                      color: Colors.blue,
-                                    )
-                                  : null,
-                              onTap: () {
+                              )
+                            : item.delay == -1 && !isPinging
+                                ? Text(
+                                    isFa ? 'بدون پاسخ' : 'No response',
+                                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                  )
+                                : null,
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle, color: Colors.blue)
+                            : null,
+                        onTap: isPinging
+                            ? null
+                            : () {
                                 setState(() {
                                   selectedConfigRaw = item.rawConfig;
                                 });
                               },
-                            ),
-                          );
-                        },
                       ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
