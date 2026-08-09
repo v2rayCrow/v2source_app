@@ -7,10 +7,7 @@ import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
-  // runZonedGuarded + FlutterError.onError catch errors that would
-  // otherwise bubble up and kill the whole app (e.g. async errors that
-  // happen outside a try/catch, or framework build errors). This keeps
-  // the app alive/usable instead of hard-crashing on unexpected errors.
+  // جلوگیری از کرش کل اپ در صورت خطای async یا framework
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
     FlutterError.onError = (FlutterErrorDetails details) {
@@ -36,13 +33,15 @@ class _MyAppState extends State<MyApp> {
 
   void toggleTheme() {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _themeMode =
+          _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     });
   }
 
   void toggleLanguage() {
     setState(() {
-      _locale = _locale.languageCode == 'fa' ? const Locale('en') : const Locale('fa');
+      _locale =
+          _locale.languageCode == 'fa' ? const Locale('en') : const Locale('fa');
     });
   }
 
@@ -71,10 +70,7 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-/// Regional-indicator pair -> flag country name (fa/en). Covers the
-/// countries that most commonly show up in these subscription lists.
-/// Anything not in this table still works fine — it just won't show a
-/// text label under the flag chip, the flag itself is still shown.
+/// نام کشورها بر اساس پرچم
 const Map<String, List<String>> _flagCountryNames = {
   '🇺🇸': ['آمریکا', 'USA'],
   '🇬🇧': ['انگلیس', 'UK'],
@@ -156,12 +152,8 @@ const Map<String, List<String>> _flagCountryNames = {
   '🇱🇧': ['لبنان', 'Lebanon'],
 };
 
-// Matches exactly a flag (two regional-indicator symbols).
 final RegExp _flagRegex = RegExp(r'[\u{1F1E6}-\u{1F1FF}]{2}', unicode: true);
 
-// Broad emoji cleanup range, used to strip emoji out of the visible
-// server name text (since the flag is already shown as a big leading
-// icon, we don't need it duplicated inside the title too).
 final RegExp _emojiCleanupRegex = RegExp(
   r'[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}\u{200D}]',
   unicode: true,
@@ -175,7 +167,6 @@ String extractFlag(String text) {
 
 String stripEmojisForDisplay(String text, bool isFa) {
   var cleaned = text.replaceAll(_emojiCleanupRegex, '');
-  // Clean up leftover separators/whitespace the emoji removal exposes.
   cleaned = cleaned.replaceAll(RegExp(r'^[\s\-–—|]+'), '');
   cleaned = cleaned.replaceAll(RegExp(r'[\s\-–—|]+$'), '');
   cleaned = cleaned.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
@@ -191,10 +182,15 @@ String countryLabel(String flag, bool isFa) {
 
 class ConfigModel {
   final String rawConfig;
-  final String name; // original remark, unstripped (used for start remark)
-  final String displayName; // emoji stripped, used for the title
-  final String flag; // extracted flag emoji, used as leading icon + group key
-  int delay; // -1 = not tested yet, 0 = tested & failed, >0 = ms
+  final String name;
+  final String displayName;
+  final String flag;
+
+  /// -1 = تست نشده، 0 = بدون پاسخ، >0 = میلی‌ثانیه
+  int delay;
+
+  /// کش JSON کامل برای سرعت و جلوگیری از parse مکرر
+  String? fullConfig;
 
   ConfigModel({
     required this.rawConfig,
@@ -202,6 +198,7 @@ class ConfigModel {
     required this.displayName,
     required this.flag,
     this.delay = -1,
+    this.fullConfig,
   });
 }
 
@@ -232,9 +229,6 @@ class _HomePageState extends State<HomePage> {
   bool isLoading = false;
   bool isPinging = false;
 
-  // Guards against rapid/overlapping connect-disconnect taps, which is
-  // what was driving the underlying v2ray/xray core into a bad state
-  // and eventually refusing to connect at all.
   bool _connecting = false;
   DateTime? _lastToggleTime;
 
@@ -244,25 +238,21 @@ class _HomePageState extends State<HomePage> {
   final String telegramUrl = 'https://t.me/V2Source';
   Timer? _timer;
 
-  // Ping test progress + live-sort state
+  // وضعیت پینگ
   int _pingDone = 0;
   int _pingTotal = 0;
   Timer? _sortTimer;
   final Set<String> _testingNow = {};
+  bool _cancelPing = false;
 
-  // Country grouping (list on top of the server list)
+  // گروه‌بندی کشور
   List<String> _countryOrder = [];
   Map<String, int> _countryCounts = {};
+  /// null = همه
   String? _selectedCountry;
 
-  // Keep this reasonably low. The underlying v2ray/xray core is not
-  // designed for hammering many delay-tests back to back — pushing
-  // concurrency too high (or looping through hundreds sequentially with
-  // no pause) is what causes the native core to crash and the app
-  // process to get flagged "bad" by Android, which then blocks the VPN
-  // service from starting until the flag clears. 5 is a good balance
-  // between "feels live" and not overloading the core.
-  static const int _pingConcurrency = 5;
+  /// concurrency پایین برای جلوگیری از کرش هسته native
+  static const int _pingConcurrency = 3;
 
   @override
   void initState() {
@@ -288,6 +278,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _timer?.cancel();
     _sortTimer?.cancel();
+    _cancelPing = true;
     super.dispose();
   }
 
@@ -301,12 +292,18 @@ class _HomePageState extends State<HomePage> {
     return widget.isFa ? 'سرور بدون نام' : 'Unnamed Server';
   }
 
-  /// تبدیل لینک share به JSON کامل
-  String? getFullConfig(String raw) {
+  /// تبدیل لینک share به JSON کامل + کش
+  String? getFullConfig(ConfigModel item) {
+    if (item.fullConfig != null && item.fullConfig!.isNotEmpty) {
+      return item.fullConfig;
+    }
     try {
-      final parser = FlutterV2ray.parseFromURL(raw);
-      return parser.getFullConfiguration();
-    } catch (_) {
+      final parser = FlutterV2ray.parseFromURL(item.rawConfig);
+      final json = parser.getFullConfiguration();
+      item.fullConfig = json;
+      return json;
+    } catch (e) {
+      debugPrint('parse error: $e');
       return null;
     }
   }
@@ -314,8 +311,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> fetchSubscription() async {
     if (mounted) setState(() => isLoading = true);
     try {
-      final response =
-          await http.get(Uri.parse(subUrl)).timeout(const Duration(seconds: 15));
+      final response = await http
+          .get(Uri.parse(subUrl))
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode == 200) {
         String content = response.body.trim();
         try {
@@ -333,8 +331,10 @@ class _HomePageState extends State<HomePage> {
         }
 
         final parsedConfigs = <ConfigModel>[];
+        // معمولاً خط اول و دوم هدر هستند
         for (int i = 2; i < lines.length; i++) {
           final raw = lines[i];
+          if (!raw.contains('://')) continue;
           final fullName = decodeRemark(raw);
           final flag = extractFlag(fullName);
           parsedConfigs.add(ConfigModel(
@@ -345,8 +345,6 @@ class _HomePageState extends State<HomePage> {
           ));
         }
 
-        // Group by country (flag) and sort groups by config count desc,
-        // so the first tab is always the country with the most configs.
         final counts = <String, int>{};
         for (final c in parsedConfigs) {
           counts[c.flag] = (counts[c.flag] ?? 0) + 1;
@@ -359,18 +357,22 @@ class _HomePageState extends State<HomePage> {
           configList = parsedConfigs;
           _countryCounts = counts;
           _countryOrder = order;
-          if (_selectedCountry == null || !order.contains(_selectedCountry)) {
-            _selectedCountry = order.isNotEmpty ? order.first : null;
-          }
+          // همیشه با «همه» شروع کن
+          _selectedCountry = null;
           if (configList.isNotEmpty && selectedConfigRaw == null) {
             selectedConfigRaw = configList.first.rawConfig;
           }
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('fetch error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(widget.isFa ? 'خطا در دریافت لیست' : 'Error fetching list')),
+          SnackBar(
+            content: Text(
+              widget.isFa ? 'خطا در دریافت لیست' : 'Error fetching list',
+            ),
+          ),
         );
       }
     } finally {
@@ -379,73 +381,92 @@ class _HomePageState extends State<HomePage> {
   }
 
   int _compareByDelay(ConfigModel a, ConfigModel b) {
-    // Untested (-1) always sinks below tested entries; among tested
-    // entries, failed (0) sinks below successful ones; success sorts
-    // by lowest ms first.
-    int rank(ConfigModel c) => c.delay < 0 ? 2 : (c.delay == 0 ? 1 : 0);
-    final ra = rank(a), rb = rank(b);
+    // تست‌نشده (-1) پایین‌تر، بدون پاسخ (0) وسط، موفق‌ها بالا و بر اساس ms
+    int rank(ConfigModel c) {
+      if (c.delay < 0) return 2;
+      if (c.delay == 0) return 1;
+      return 0;
+    }
+
+    final ra = rank(a);
+    final rb = rank(b);
     if (ra != rb) return ra.compareTo(rb);
     if (ra == 0) return a.delay.compareTo(b.delay);
     return 0;
   }
 
+  /// لیست قابل مشاهده بر اساس فیلتر کشور
   List<ConfigModel> get _visibleConfigs {
-    if (_selectedCountry == null) return configList;
+    if (_selectedCountry == null) return List<ConfigModel>.from(configList);
     return configList.where((c) => c.flag == _selectedCountry).toList();
   }
 
   Future<void> testPingAndSort() async {
-    if (configList.isEmpty || isPinging) return;
+    if (isPinging) return;
     if (isConnected) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(widget.isFa
-              ? 'برای تست پینگ، ابتدا اتصال را قطع کنید'
-              : 'Disconnect before running a ping test'),
+          content: Text(
+            widget.isFa
+                ? 'برای تست پینگ، ابتدا اتصال را قطع کنید'
+                : 'Disconnect before running a ping test',
+          ),
         ),
       );
       return;
     }
 
+    // فقط کانفیگ‌های لیست فعلی (همه یا یک کشور)
+    final toTest = List<ConfigModel>.from(_visibleConfigs);
+    if (toTest.isEmpty) return;
+
     setState(() {
       isPinging = true;
+      _cancelPing = false;
       _pingDone = 0;
-      _pingTotal = configList.length;
+      _pingTotal = toTest.length;
       _testingNow.clear();
     });
 
-    // Re-sort + rebuild on a timer instead of after every single result.
-    // With ~400 items, sorting/rebuilding on every completion would be
-    // both slow and would spam the native side; every 300ms keeps it
-    // feeling live (results appear per-row as soon as they land, since
-    // each worker also calls setState on completion) without hammering
-    // the UI thread with constant full re-sorts.
-    _sortTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
-      if (!mounted) return;
+    // مرتب‌سازی زنده هر ۴۰۰ میلی‌ثانیه
+    _sortTimer?.cancel();
+    _sortTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+      if (!mounted || _cancelPing) return;
       setState(() => configList.sort(_compareByDelay));
     });
 
-    final queue = List<ConfigModel>.from(configList);
     int nextIndex = 0;
 
     Future<void> worker() async {
-      while (true) {
-        if (nextIndex >= queue.length) return;
-        final item = queue[nextIndex++];
+      while (!_cancelPing) {
+        final i = nextIndex++;
+        if (i >= toTest.length) return;
 
-        if (mounted) setState(() => _testingNow.add(item.rawConfig));
+        final item = toTest[i];
+        if (mounted) {
+          setState(() => _testingNow.add(item.rawConfig));
+        }
 
         try {
-          final fullConfig = getFullConfig(item.rawConfig);
-          if (fullConfig == null) {
+          final fullConfig = getFullConfig(item);
+          if (fullConfig == null || fullConfig.isEmpty) {
             item.delay = 0;
           } else {
+            // URL جایگزین که معمولاً در شبکه‌های محدود بهتر کار می‌کند
             final delay = await v2ray
-                .getServerDelay(config: fullConfig)
-                .timeout(const Duration(seconds: 6), onTimeout: () => -1);
+                .getServerDelay(
+                  config: fullConfig,
+                  url: 'http://www.gstatic.com/generate_204',
+                )
+                .timeout(
+                  const Duration(seconds: 8),
+                  onTimeout: () => -1,
+                );
             item.delay = delay > 0 ? delay : 0;
           }
-        } catch (_) {
+        } catch (e) {
+          debugPrint('ping error: $e');
           item.delay = 0;
         }
 
@@ -453,14 +474,18 @@ class _HomePageState extends State<HomePage> {
         if (mounted) {
           setState(() => _testingNow.remove(item.rawConfig));
         }
-        // Small breathing room between tests on this worker so we don't
-        // fire requests at the native core back-to-back.
-        await Future.delayed(const Duration(milliseconds: 70));
+
+        // فاصله کوچک بین تست‌ها برای جلوگیری از فشار روی هسته
+        await Future.delayed(const Duration(milliseconds: 90));
       }
     }
 
     try {
-      await Future.wait(List.generate(_pingConcurrency, (_) => worker()));
+      await Future.wait(
+        List.generate(_pingConcurrency, (_) => worker()),
+      );
+    } catch (e) {
+      debugPrint('ping workers error: $e');
     } finally {
       _sortTimer?.cancel();
       _sortTimer = null;
@@ -470,85 +495,82 @@ class _HomePageState extends State<HomePage> {
           isPinging = false;
           _testingNow.clear();
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(widget.isFa
-                ? 'تست پینگ انجام شد و لیست مرتب گردید'
-                : 'Ping test completed & list sorted'),
-          ),
-        );
+        if (!_cancelPing) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                widget.isFa
+                    ? 'تست پینگ انجام شد ($_pingDone/$_pingTotal)'
+                    : 'Ping test done ($_pingDone/$_pingTotal)',
+              ),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     }
   }
 
-  Future<void> toggleConnect() async {
-    if (selectedConfigRaw == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(widget.isFa
-              ? 'لطفا ابتدا یک کانفیگ انتخاب کنید'
-              : 'Please select a config first'),
-        ),
-      );
-      return;
+  void stopPing() {
+    _cancelPing = true;
+    _sortTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        isPinging = false;
+        _testingNow.clear();
+        configList.sort(_compareByDelay);
+      });
     }
+  }
 
-    // Debounce: block overlapping calls and rapid repeated taps. Spamming
-    // start/stop back to back was the main cause of the native core
-    // getting stuck and refusing to connect until the app was restarted.
-    if (_connecting) return;
+  Future<void> toggleConnect() async {
+    // جلوگیری از کلیک‌های پشت‌سرهم
     final now = DateTime.now();
     if (_lastToggleTime != null &&
-        now.difference(_lastToggleTime!) < const Duration(milliseconds: 800)) {
+        now.difference(_lastToggleTime!).inMilliseconds < 800) {
       return;
     }
     _lastToggleTime = now;
 
-    if (isPinging) {
+    if (_connecting) return;
+    if (selectedConfigRaw == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(widget.isFa
-              ? 'لطفا تا پایان تست پینگ صبر کنید'
-              : 'Please wait for the ping test to finish'),
+          content: Text(
+            widget.isFa
+                ? 'لطفا ابتدا یک کانفیگ انتخاب کنید'
+                : 'Please select a config first',
+          ),
         ),
       );
       return;
     }
 
-    setState(() => _connecting = true);
-
     if (isConnected) {
+      _connecting = true;
       try {
         await v2ray.stopV2Ray();
-        if (mounted) setState(() => isConnected = false);
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.isFa ? 'خطا در قطع اتصال: $e' : 'Stop error: $e')),
-          );
-        }
+        debugPrint('stop error: $e');
       } finally {
-        if (mounted) setState(() => _connecting = false);
+        _connecting = false;
+        if (mounted) setState(() => isConnected = false);
       }
       return;
     }
 
+    _connecting = true;
     try {
       final permission = await v2ray.requestPermission();
       if (!permission) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.isFa ? 'دسترسی VPN رد شد' : 'VPN permission denied')),
-          );
-        }
-        return;
-      }
-
-      final fullConfig = getFullConfig(selectedConfigRaw!);
-      if (fullConfig == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.isFa ? 'کانفیگ نامعتبر است' : 'Invalid config')),
+            SnackBar(
+              content: Text(
+                widget.isFa ? 'دسترسی VPN رد شد' : 'VPN permission denied',
+              ),
+            ),
           );
         }
         return;
@@ -564,95 +586,52 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
+      final fullConfig = getFullConfig(current);
+      if (fullConfig == null || fullConfig.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                widget.isFa
+                    ? 'کانفیگ نامعتبر است'
+                    : 'Invalid config',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
       await v2ray.startV2Ray(
         remark: current.name,
         config: fullConfig,
         proxyOnly: false,
       );
     } catch (e) {
-      // Defensively reset the native side so the next attempt isn't
-      // starting from a half-connected state.
+      debugPrint('start error: $e');
       try {
         await v2ray.stopV2Ray();
       } catch (_) {}
       if (mounted) {
         setState(() => isConnected = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(widget.isFa ? 'خطا در اتصال: $e' : 'Start error: $e')),
+          SnackBar(
+            content: Text(
+              widget.isFa
+                  ? 'خطا در شروع اتصال: $e'
+                  : 'Connect error: $e',
+            ),
+          ),
         );
       }
     } finally {
-      if (mounted) setState(() => _connecting = false);
+      _connecting = false;
     }
   }
 
   Future<void> _openTelegram() async {
-    try {
-      await launchUrl(Uri.parse(telegramUrl), mode: LaunchMode.externalApplication);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(widget.isFa ? 'باز کردن تلگرام ناموفق بود' : 'Could not open Telegram')),
-        );
-      }
-    }
-  }
-
-  Widget _buildCountryStrip(bool isFa) {
-    if (_countryOrder.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
-      height: 76,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _countryOrder.length,
-        itemBuilder: (context, index) {
-          final flag = _countryOrder[index];
-          final count = _countryCounts[flag] ?? 0;
-          final label = countryLabel(flag, isFa);
-          final selected = flag == _selectedCountry;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedCountry = flag),
-            child: Container(
-              width: 64,
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              decoration: BoxDecoration(
-                color: selected
-                    ? Colors.blueAccent.withOpacity(0.2)
-                    : Theme.of(context).cardColor,
-                border: Border.all(
-                  color: selected ? Colors.blueAccent : Colors.grey.withOpacity(0.3),
-                  width: selected ? 2 : 1,
-                ),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(flag, style: const TextStyle(fontSize: 26)),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: selected ? Colors.blueAccent : Colors.grey,
-                    ),
-                  ),
-                  if (label.isNotEmpty)
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 9),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+    final Uri url = Uri.parse(telegramUrl);
+    await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
   Widget? _buildSubtitle(ConfigModel item, bool isFa) {
@@ -661,8 +640,8 @@ class _HomePageState extends State<HomePage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(
-            width: 10,
-            height: 10,
+            width: 12,
+            height: 12,
             child: CircularProgressIndicator(strokeWidth: 1.5),
           ),
           const SizedBox(width: 6),
@@ -679,16 +658,60 @@ class _HomePageState extends State<HomePage> {
         style: TextStyle(
           color: item.delay < 250 ? Colors.green : Colors.orange,
           fontSize: 12,
+          fontWeight: FontWeight.w500,
         ),
       );
     }
     if (item.delay == 0) {
       return Text(
-        isFa ? 'بدون پاسخ' : 'Timeout',
+        isFa ? 'بدون پاسخ (-1)' : 'No response (-1)',
         style: const TextStyle(color: Colors.redAccent, fontSize: 12),
       );
     }
-    return null;
+    return null; // هنوز تست نشده
+  }
+
+  Widget _buildCountryStrip(bool isFa) {
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          // چیپ «همه» اول
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ChoiceChip(
+              label: Text(
+                isFa
+                    ? 'همه (${configList.length})'
+                    : 'All (${configList.length})',
+              ),
+              selected: _selectedCountry == null,
+              onSelected: (_) {
+                setState(() => _selectedCountry = null);
+              },
+            ),
+          ),
+          ..._countryOrder.map((flag) {
+            final count = _countryCounts[flag] ?? 0;
+            final label = countryLabel(flag, isFa);
+            final text = label.isEmpty
+                ? '$flag ($count)'
+                : '$flag $label ($count)';
+            return Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(text, style: const TextStyle(fontSize: 13)),
+                selected: _selectedCountry == flag,
+                onSelected: (_) {
+                  setState(() => _selectedCountry = flag);
+                },
+              ),
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   @override
@@ -703,14 +726,19 @@ class _HomePageState extends State<HomePage> {
           title: const Text('v2source'),
           actions: [
             IconButton(
-              icon: Icon(widget.isDark ? Icons.wb_sunny : Icons.nightlight_round),
+              icon: Icon(
+                widget.isDark ? Icons.wb_sunny : Icons.nightlight_round,
+              ),
               onPressed: widget.onToggleTheme,
             ),
             TextButton(
               onPressed: widget.onToggleLanguage,
               child: Text(
                 isFa ? 'EN' : 'FA',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             IconButton(
@@ -724,6 +752,7 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             children: [
               if (isLoading || isPinging) const LinearProgressIndicator(),
+
               Card(
                 elevation: 2,
                 child: Padding(
@@ -735,7 +764,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Text(
                           lastUpdateText.isEmpty
-                              ? (isFa ? 'در حال دریافت اطلاعات...' : 'Fetching info...')
+                              ? (isFa
+                                  ? 'در حال دریافت اطلاعات...'
+                                  : 'Fetching info...')
                               : lastUpdateText,
                           style: const TextStyle(fontSize: 12),
                         ),
@@ -749,54 +780,61 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
+
               const SizedBox(height: 15),
+
+              // دکمه بزرگ Start / Stop
               ElevatedButton(
-                onPressed: (isPinging || _connecting) ? null : toggleConnect,
+                onPressed: toggleConnect,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isConnected ? Colors.red : Colors.green,
-                  disabledBackgroundColor:
-                      (isConnected ? Colors.red : Colors.green).withOpacity(0.5),
                   minimumSize: const Size(125, 125),
                   shape: const CircleBorder(),
                 ),
-                child: _connecting
-                    ? const SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 3,
-                        ),
-                      )
-                    : Text(
-                        isConnected ? (isFa ? 'قطع' : 'STOP') : (isFa ? 'شروع' : 'START'),
-                        style: const TextStyle(
-                            fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold),
-                      ),
+                child: Text(
+                  isConnected
+                      ? (isFa ? 'قطع' : 'STOP')
+                      : (isFa ? 'شروع' : 'START'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
+
               const SizedBox(height: 15),
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     isFa ? 'لیست سرورها:' : 'Server List:',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   OutlinedButton.icon(
-                    onPressed: isPinging ? null : testPingAndSort,
-                    icon: const Icon(Icons.speed, size: 16),
+                    onPressed: isPinging ? stopPing : testPingAndSort,
+                    icon: Icon(
+                      isPinging ? Icons.stop : Icons.speed,
+                      size: 16,
+                    ),
                     label: Text(
                       isPinging
-                          ? '$_pingDone/$_pingTotal'
+                          ? '$_pingDone/$_pingTotal  ${isFa ? "توقف" : "Stop"}'
                           : (isFa ? 'تست پینگ واقعی' : 'Real Delay / Sort'),
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
                 ],
               ),
+
               const SizedBox(height: 8),
               _buildCountryStrip(isFa),
               const SizedBox(height: 8),
+
               Expanded(
                 child: visibleConfigs.isEmpty
                     ? Center(
@@ -809,23 +847,37 @@ class _HomePageState extends State<HomePage> {
                         itemCount: visibleConfigs.length,
                         itemBuilder: (context, index) {
                           final item = visibleConfigs[index];
-                          final isSelected = item.rawConfig == selectedConfigRaw;
+                          final isSelected =
+                              item.rawConfig == selectedConfigRaw;
                           return Card(
-                            color: isSelected ? Colors.blue.withOpacity(0.25) : null,
+                            color: isSelected
+                                ? Colors.blue.withOpacity(0.25)
+                                : null,
                             child: ListTile(
-                              leading: Text(item.flag, style: const TextStyle(fontSize: 28)),
+                              leading: Text(
+                                item.flag,
+                                style: const TextStyle(fontSize: 28),
+                              ),
                               title: Text(
                                 item.displayName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
                               ),
                               subtitle: _buildSubtitle(item, isFa),
                               trailing: isSelected
-                                  ? const Icon(Icons.check_circle, color: Colors.blue)
+                                  ? const Icon(
+                                      Icons.check_circle,
+                                      color: Colors.blue,
+                                    )
                                   : null,
                               onTap: () {
-                                setState(() => selectedConfigRaw = item.rawConfig);
+                                setState(() {
+                                  selectedConfigRaw = item.rawConfig;
+                                });
                               },
                             ),
                           );
