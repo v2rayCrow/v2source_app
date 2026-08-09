@@ -116,11 +116,14 @@ class _HomePageState extends State<HomePage> {
           isConnected = status.state == 'CONNECTED';
         });
 
-        if (status.state == 'ERROR' && mounted) {
+        if (status.state == 'ERROR') {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.isFa
-                ? 'خطا: ${status.message ?? "اتصال ناموفق"}'
-                : 'Error: ${status.message ?? "Connection failed"}')),
+            SnackBar(
+              content: Text(
+                widget.isFa ? 'خطا در اتصال' : 'Connection error',
+              ),
+            ),
           );
         }
       },
