@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
-  // جلوگیری از کرش کل اپ در صورت خطای async یا framework
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
     FlutterError.onError = (FlutterErrorDetails details) {
@@ -186,13 +185,11 @@ class ConfigModel {
   final String displayName;
   final String flag;
 
-  /// شماره سرور در بین کشور خودش (مثلا فنلاند ۱ تا ۱۰) تا با هم قاطی نشن
   int countryIndex;
 
   /// -1 = تست نشده، 0 = بدون پاسخ، >0 = میلی‌ثانیه
   int delay;
 
-  /// کش JSON کامل برای سرعت و جلوگیری از parse مکرر
   String? fullConfig;
 
   ConfigModel({
@@ -242,25 +239,16 @@ class _HomePageState extends State<HomePage> {
   final String telegramUrl = 'https://t.me/V2Source';
   Timer? _timer;
 
-  // وضعیت پینگ
   int _pingDone = 0;
   int _pingTotal = 0;
   Timer? _sortTimer;
   final Set<String> _testingNow = {};
   bool _cancelPing = false;
 
-  // گروه‌بندی کشور
   List<String> _countryOrder = [];
   Map<String, int> _countryCounts = {};
-  /// null = همه
   String? _selectedCountry;
 
-  /// تست‌ها یکی‌یکی (سریال) انجام می‌شن، نه همزمان.
-  /// هسته V2Ray فقط یک تست delay رو در آن واحد به‌درستی مدیریت می‌کنه؛
-  /// وقتی چند تست هم‌زمان اجرا بشه (concurrency > 1) پورت‌ها/سوکت‌های
-  /// موقتی که هسته برای تست باز می‌کنه با هم تداخل پیدا می‌کنن و همین
-  /// باعث می‌شد کانفیگ‌های کاملا سالم هم به اشتباه «بدون پاسخ» نشون داده
-  /// بشن، و گاهی هم کل اپ کرش می‌کرد. برای پایداری کامل روی ۱ ثابت بمونه.
   static const int _pingConcurrency = 1;
 
   @override
@@ -301,7 +289,6 @@ class _HomePageState extends State<HomePage> {
     return widget.isFa ? 'سرور بدون نام' : 'Unnamed Server';
   }
 
-  /// تبدیل لینک share به JSON کامل + کش
   String? getFullConfig(ConfigModel item) {
     if (item.fullConfig != null && item.fullConfig!.isNotEmpty) {
       return item.fullConfig;
@@ -340,18 +327,19 @@ class _HomePageState extends State<HomePage> {
         }
 
         final parsedConfigs = <ConfigModel>[];
-        // معمولاً خط اول و دوم هدر هستند
         for (int i = 2; i < lines.length; i++) {
           final raw = lines[i];
           if (!raw.contains('://')) continue;
           final fullName = decodeRemark(raw);
           final flag = extractFlag(fullName);
-          parsedConfigs.add(ConfigModel(
-            rawConfig: raw,
-            name: fullName,
-            displayName: stripEmojisForDisplay(fullName, widget.isFa),
-            flag: flag,
-          ));
+          parsedConfigs.add(
+            ConfigModel(
+              rawConfig: raw,
+              name: fullName,
+              displayName: stripEmojisForDisplay(fullName, widget.isFa),
+              flag: flag,
+            ),
+          );
         }
 
         final counts = <String, int>{};
@@ -361,8 +349,6 @@ class _HomePageState extends State<HomePage> {
         final order = counts.keys.toList()
           ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
 
-        // شماره‌گذاری هر سرور در بین سرورهای هم‌کشور خودش (۱، ۲، ۳...)
-        // تا وقتی مثلا ۱۰ تا سرور فنلاند هست، بشه راحت از هم تشخیصشون داد
         final seenPerCountry = <String, int>{};
         for (final c in parsedConfigs) {
           final n = (seenPerCountry[c.flag] ?? 0) + 1;
@@ -375,7 +361,6 @@ class _HomePageState extends State<HomePage> {
           configList = parsedConfigs;
           _countryCounts = counts;
           _countryOrder = order;
-          // همیشه با «همه» شروع کن
           _selectedCountry = null;
           if (configList.isNotEmpty && selectedConfigRaw == null) {
             selectedConfigRaw = configList.first.rawConfig;
@@ -399,7 +384,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   int _compareByDelay(ConfigModel a, ConfigModel b) {
-    // تست‌نشده (-1) پایین‌تر، بدون پاسخ (0) وسط، موفق‌ها بالا و بر اساس ms
     int rank(ConfigModel c) {
       if (c.delay < 0) return 2;
       if (c.delay == 0) return 1;
@@ -413,10 +397,42 @@ class _HomePageState extends State<HomePage> {
     return 0;
   }
 
-  /// لیست قابل مشاهده بر اساس فیلتر کشور
   List<ConfigModel> get _visibleConfigs {
     if (_selectedCountry == null) return List<ConfigModel>.from(configList);
     return configList.where((c) => c.flag == _selectedCountry).toList();
+  }
+
+  // --- افزودن پیش‌تست سریع TCP (جدید) ---
+  Future<bool> _quickTcpCheck(ConfigModel item) async {
+    try {
+      final uri = Uri.parse(item.rawConfig);
+      String? host;
+      int? port;
+
+      if (uri.scheme == 'vmess') {
+        String normalized = uri.hasAuthority ? uri.authority : uri.path;
+        String decoded = utf8.decode(base64.decode(base64.normalize(normalized)));
+        Map<String, dynamic> json = jsonDecode(decoded);
+        host = json['add']?.toString();
+        port = int.tryParse(json['port']?.toString() ?? '');
+      } else if (uri.host.isNotEmpty && uri.port > 0) {
+        host = uri.host;
+        port = uri.port;
+      }
+
+      if (host != null && port != null) {
+        final socket = await Socket.connect(
+          host,
+          port,
+          timeout: const Duration(milliseconds: 1500),
+        );
+        socket.destroy();
+        return true;
+      }
+    } catch (_) {
+      return false; // سرور مرده یا فیلتر شده است
+    }
+    return true;
   }
 
   Future<void> testPingAndSort() async {
@@ -435,7 +451,6 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    // فقط کانفیگ‌های لیست فعلی (همه یا یک کشور)
     final toTest = List<ConfigModel>.from(_visibleConfigs);
     if (toTest.isEmpty) return;
 
@@ -447,20 +462,16 @@ class _HomePageState extends State<HomePage> {
       _testingNow.clear();
     });
 
-    // مرتب‌سازی زنده هر ۴۰۰ میلی‌ثانیه
     _sortTimer?.cancel();
     _sortTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
       if (!mounted || _cancelPing) return;
       setState(() => configList.sort(_compareByDelay));
     });
 
-    /// یک بار تست delay واقعی برای یک کانفیگ. خروجی >0 یعنی موفق،
-    /// و هر مقدار <=0 (خطا یا تایم‌اوت) یعنی ناموفق.
     Future<int> testOnce(ConfigModel item) async {
       try {
         final fullConfig = getFullConfig(item);
         if (fullConfig == null || fullConfig.isEmpty) return 0;
-        // URL جایگزین که معمولاً در شبکه‌های محدود بهتر کار می‌کند
         final delay = await v2ray
             .getServerDelay(
               config: fullConfig,
@@ -489,14 +500,16 @@ class _HomePageState extends State<HomePage> {
           setState(() => _testingNow.add(item.rawConfig));
         }
 
-        int delay = await testOnce(item);
+        // --- پیش‌تست سریع TCP قبل از تست V2Ray ---
+        bool isAlive = await _quickTcpCheck(item);
 
-        // یک بار retry قبل از اینکه قطعی «بدون پاسخ» اعلام بشه؛
-        // خیلی از موارد «بدون پاسخ» در واقع یک شکست موقتی/گذرا بودن
-        // نه اینکه کانفیگ واقعا خراب باشه.
-        if (delay <= 0 && !_cancelPing) {
-          await Future.delayed(const Duration(milliseconds: 300));
+        int delay = 0;
+        if (isAlive && !_cancelPing) {
           delay = await testOnce(item);
+          if (delay <= 0 && !_cancelPing) {
+            await Future.delayed(const Duration(milliseconds: 250));
+            delay = await testOnce(item);
+          }
         }
 
         item.delay = delay > 0 ? delay : 0;
@@ -506,9 +519,7 @@ class _HomePageState extends State<HomePage> {
           setState(() => _testingNow.remove(item.rawConfig));
         }
 
-        // فاصله بین تست‌ها تا هسته V2Ray فرصت آزادسازی منابع تست قبلی
-        // رو داشته باشه (این وقفه یکی از دلایل اصلی نتایج غلط بود)
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 150));
       }
     }
 
@@ -562,7 +573,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// شروع اتصال روی یک کانفیگ مشخص (فرض بر اینه که از قبل چیزی وصل نیست)
   Future<bool> _startConnection(ConfigModel item) async {
     try {
       final permission = await v2ray.requestPermission();
@@ -595,7 +605,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> toggleConnect() async {
-    // جلوگیری از کلیک‌های پشت‌سرهم
     final now = DateTime.now();
     if (_lastToggleTime != null &&
         now.difference(_lastToggleTime!).inMilliseconds < 800) {
@@ -639,10 +648,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// وقتی روی یک کانفیگ در لیست کلیک می‌شه:
-  /// - اگه چیزی وصل نیست: فقط انتخابش کن.
-  /// - اگه از قبل وصل به همین کانفیگه: کاری نکن.
-  /// - اگه به یه کانفیگ دیگه وصله: خودکار قطعش کن و به این یکی وصل شو.
   Future<void> onConfigTap(ConfigModel item) async {
     if (item.rawConfig == selectedConfigRaw && !isConnected) return;
     if (item.rawConfig == selectedConfigRaw && isConnected) return;
@@ -652,7 +657,6 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    // در حال جابجایی بین دو کانفیگ
     if (_connecting) return;
     _connecting = true;
     setState(() {
@@ -665,7 +669,6 @@ class _HomePageState extends State<HomePage> {
       } catch (e) {
         debugPrint('stop-before-switch error: $e');
       }
-      // یک مکث کوتاه تا سرویس VPN قبلی کاملا آزاد بشه قبل از اتصال جدید
       await Future.delayed(const Duration(milliseconds: 400));
       if (!mounted || selectedConfigRaw != item.rawConfig) return;
       await _startConnection(item);
@@ -677,6 +680,13 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openTelegram() async {
     final Uri url = Uri.parse(telegramUrl);
     await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  // --- تنظیم مجدد بازه‌های رنگ‌بندی پینگ (جدید) ---
+  Color _getPingColor(int delay) {
+    if (delay <= 700) return Colors.green;
+    if (delay <= 1500) return Colors.orange;
+    return Colors.redAccent;
   }
 
   Widget? _buildSubtitle(ConfigModel item, bool isFa) {
@@ -701,7 +711,7 @@ class _HomePageState extends State<HomePage> {
       return Text(
         'Ping: ${item.delay} ms',
         style: TextStyle(
-          color: item.delay < 250 ? Colors.green : Colors.orange,
+          color: _getPingColor(item.delay),
           fontSize: 12,
           fontWeight: FontWeight.w500,
         ),
@@ -713,7 +723,7 @@ class _HomePageState extends State<HomePage> {
         style: const TextStyle(color: Colors.redAccent, fontSize: 12),
       );
     }
-    return null; // هنوز تست نشده
+    return null;
   }
 
   Widget _buildCountryStrip(bool isFa) {
@@ -722,7 +732,6 @@ class _HomePageState extends State<HomePage> {
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          // چیپ «همه» اول
           Padding(
             padding: const EdgeInsets.only(right: 6),
             child: ChoiceChip(
@@ -828,7 +837,6 @@ class _HomePageState extends State<HomePage> {
 
               const SizedBox(height: 15),
 
-              // دکمه بزرگ Start / Stop
               ElevatedButton(
                 onPressed: toggleConnect,
                 style: ElevatedButton.styleFrom(
