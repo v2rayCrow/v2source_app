@@ -32,12 +32,16 @@ jobs:
         run: |
           flutter create . --platforms=android --org com.v2source.app --project-name v2source_app
 
+      - name: Set app display name
+        run: |
+          sed -i 's/android:label="[^"]*"/android:label="v2source"/' android/app/src/main/AndroidManifest.xml
+          grep android:label android/app/src/main/AndroidManifest.xml
+
       - name: Install dependencies
         run: flutter pub get
 
       - name: Generate App Icons
         run: dart run flutter_launcher_icons
-        continue-on-error: true
 
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
