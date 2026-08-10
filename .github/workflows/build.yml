@@ -1,16 +1,11 @@
-name: Build & Release APK
+name: Build Android APK
 
 on:
   push:
     branches:
       - main
       - master
-    tags:
-      - 'v*'
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
@@ -23,148 +18,23 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: 'zulu'
           java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.x'
           channel: 'stable'
           cache: true
-
-      - name: Create Android Platform Files
-        run: |
-          flutter create . --platforms=android --org com.v2source.app --project-name v2source_app
-
-      - name: Set app display name
-        run: |
-          sed -i 's/android:label="[^"]*"/android:label="v2source"/' android/app/src/main/AndroidManifest.xml
-          grep android:label android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate App Icons
-        run: dart run flutter_launcher_icons
+      - name: Build APK
+        run: flutter build apk --release
 
-      # مهم‌ترین دلیل اینکه "آپدیت روی نسخه قبلی نصب نمیشه" همینه:
-      # بدون این مرحله هر build با یک کلید امضای دیبویِ متفاوت (تصادفی روی
-      # هر ران) امضا میشه، و اندروید هیچوقت APK با کلید متفاوت رو به عنوان
-      # آپدیت روی نسخه‌ی قبلی قبول نمیکنه (باید uninstall کنی).
-      # با این کار همیشه با یک کلید ثابت امضا میشه.
-      #
-      # قبل از اولین اجرا باید این ۴ secret رو توی
-      # Settings > Secrets and variables > Actions تعریف کنی:
-      #   ANDROID_KEYSTORE_BASE64  -> خروجی: base64 -w0 release.keystore
-      #   ANDROID_KEYSTORE_PASSWORD
-      #   ANDROID_KEY_ALIAS
-      #   ANDROID_KEY_PASSWORD
-      # کیستور رو یک بار با این دستور بساز (و امن نگهش دار، گم بشه دیگه
-      # هیچوقت نمیتونی روی نصب‌های قبلی کاربرات آپدیت بفرستی):
-      #   keytool -genkey -v -keystore release.keystore -alias v2source \
-      #     -keyalg RSA -keysize 2048 -validity 10000
-      - name: Set up consistent release signing key
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
-        run: |
-          # --ignore-garbage یعنی اگه هنگام کپی کردن سکرت توی گیت‌هاب یه
-          # فاصله/خط‌جدید اضافه اومده باشه، خودش نادیده بگیره و کرش نکنه
-          echo "$KEYSTORE_BASE64" | base64 -d --ignore-garbage > android/app/release.keystore
-
-          # اعتبارسنجی: اگه فایل خروجی یه کیستور واقعی نباشه (مثلا سکرت
-          # اشتباه/ناقص پیست شده) همینجا با یه پیام واضح متوقف شو، نه اینکه
-          # بذاره تا مرحله بیلد با یه خطای گنگ خراب بشه
-          if ! keytool -list -storetype PKCS12 -keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
-            echo "::error::سکرت ANDROID_KEYSTORE_BASE64 یا ANDROID_KEYSTORE_PASSWORD درست نیست. مطمئن شو دقیقا محتوای فایل .b64 (و نه چیز دیگه‌ای) رو کپی کردی، بدون فاصله/خط اضافه."
-            exit 1
-          fi
-
-          cat > android/key.properties <<EOF
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=release.keystore
-          EOF
-          python3 - <<'PY'
-          path = "android/app/build.gradle"
-          src = open(path).read()
-
-          loader = (
-              'def keystorePropertiesFile = rootProject.file("key.properties")\n'
-              'def keystoreProperties = new Properties()\n'
-              'if (keystorePropertiesFile.exists()) {\n'
-              '    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n'
-              '}\n\n'
-          )
-          if "keystorePropertiesFile" not in src:
-              src = src.replace("android {", loader + "android {", 1)
-
-          signing_block = (
-              '    signingConfigs {\n'
-              '        release {\n'
-              "            keyAlias keystoreProperties['keyAlias']\n"
-              "            keyPassword keystoreProperties['keyPassword']\n"
-              "            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null\n"
-              "            storePassword keystoreProperties['storePassword']\n"
-              '        }\n'
-              '    }\n\n'
-          )
-          if "signingConfigs {" not in src:
-              src = src.replace("    buildTypes {", signing_block + "    buildTypes {", 1)
-
-          src = src.replace(
-              "signingConfig signingConfigs.debug",
-              "signingConfig signingConfigs.release",
-          )
-
-          open(path, "w").write(src)
-          PY
-          echo "Release signing configured."
-
-      - name: Build APK (universal + per-architecture)
-        run: |
-          # نسخه universal: روی همه گوشی‌ها نصب میشه، حجمش بیشتره
-          flutter build apk --release --no-tree-shake-icons
-          # نسخه‌های جدا per-ABI: حجم کمتر، برای هر معماری بهینه شده
-          flutter build apk --release --no-tree-shake-icons --split-per-abi
-
-      - name: Read version from pubspec.yaml
-        id: version
-        run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d '\r')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Rename APKs
-        run: |
-          mkdir -p out
-          V="${{ steps.version.outputs.version }}"
-          cd build/app/outputs/flutter-apk
-          cp app-release.apk               "$GITHUB_WORKSPACE/out/v2source-$V-universal.apk"
-          cp app-arm64-v8a-release.apk      "$GITHUB_WORKSPACE/out/v2source-$V-arm64-v8a.apk"
-          cp app-armeabi-v7a-release.apk    "$GITHUB_WORKSPACE/out/v2source-$V-armeabi-v7a.apk"
-          cp app-x86_64-release.apk         "$GITHUB_WORKSPACE/out/v2source-$V-x86_64.apk"
-          cd "$GITHUB_WORKSPACE"
-          ls -la out/
-
-      - name: Upload APK Artifacts
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: out/*.apk
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*.apk
-          generate_release_notes: true
-          body: |
-            ### دانلود کدوم فایل؟
-            - **اکثر گوشی‌ها (پیشنهاد می‌شود):** `v2source-${{ steps.version.outputs.version }}-arm64-v8a.apk`
-            - گوشی‌های خیلی قدیمی: `v2source-${{ steps.version.outputs.version }}-armeabi-v7a.apk`
-            - مطمئن نیستید گوشیتون چیه؟ فایل `universal` رو نصب کنید (حجمش بیشتره ولی روی همه کار می‌کنه)
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
