@@ -12,6 +12,7 @@ dependencies:
   http: ^1.2.0
   flutter_v2ray: ^1.0.10
   url_launcher: ^6.2.5
+  package_info_plus: ^8.0.0
 
 dev_dependencies:
   flutter_test:
