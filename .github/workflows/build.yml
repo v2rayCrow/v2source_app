@@ -62,9 +62,8 @@ jobs:
       #   ANDROID_KEY_PASSWORD
       # کیستور رو یک بار با این دستور بساز (و امن نگهش دار، گم بشه دیگه
       # هیچوقت نمیتونی روی نصب‌های قبلی کاربرات آپدیت بفرستی):
-      #   keytool -genkeypair -v -storetype PKCS12 -keystore release.keystore \
-      #     -alias v2source -keyalg RSA -keysize 2048 -validity 10000 \
-      #     -storepass PASS -keypass PASS -dname "CN=V2Source, O=V2Source, C=IR"
+      #   keytool -genkey -v -keystore release.keystore -alias v2source \
+      #     -keyalg RSA -keysize 2048 -validity 10000
       - name: Set up consistent release signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -77,17 +76,11 @@ jobs:
           # فاصله/خط‌جدید اضافه اومده باشه، خودش نادیده بگیره و کرش نکنه
           echo "$KEYSTORE_BASE64" | base64 -d --ignore-garbage > android/app/release.keystore
 
-          # اعتبارسنجی: هم PKCS12 و هم JKS رو امتحان می‌کنیم
-          if keytool -list -storetype PKCS12 -keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
-            echo "Keystore validated as PKCS12"
-          elif keytool -list -storetype JKS -keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
-            echo "Keystore validated as JKS"
-          elif keytool -list -keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
-            echo "Keystore validated (default type)"
-          else
-            echo "::error::سکرت ANDROID_KEYSTORE_BASE64 یا ANDROID_KEYSTORE_PASSWORD درست نیست."
-            echo "::error::مطمئن شو: 1) Base64 کامل و بدون فاصله/خط اضافه پیست شده 2) پسورد درست است 3) با دستور PKCS12 ساخته شده."
-            ls -la android/app/release.keystore || true
+          # اعتبارسنجی: اگه فایل خروجی یه کیستور واقعی نباشه (مثلا سکرت
+          # اشتباه/ناقص پیست شده) همینجا با یه پیام واضح متوقف شو، نه اینکه
+          # بذاره تا مرحله بیلد با یه خطای گنگ خراب بشه
+          if ! keytool -list -storetype PKCS12 -keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
+            echo "::error::سکرت ANDROID_KEYSTORE_BASE64 یا ANDROID_KEYSTORE_PASSWORD درست نیست. مطمئن شو دقیقا محتوای فایل .b64 (و نه چیز دیگه‌ای) رو کپی کردی، بدون فاصله/خط اضافه."
             exit 1
           fi
 
@@ -143,7 +136,8 @@ jobs:
       - name: Read version from pubspec.yaml
         id: version
         run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d '\r')
+          # فقط versionName (مثلاً 1.0.5) — بخش +buildNumber از نام فایل حذف می‌شود
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//' | tr -d '\r' | tr -d ' ')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Rename APKs
